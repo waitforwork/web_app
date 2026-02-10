@@ -1,4 +1,5 @@
 # Build directories
+bld/
 build/
 bin/
 *.o
