@@ -35,14 +35,14 @@ pipeline {
             }
         }
         
-#        stage('Docker Build') {
-#            steps {
-#                sh """
-#                    docker build -t ${APP_NAME}:${VERSION} .
-#                    docker tag ${APP_NAME}:${VERSION} ${APP_NAME}:latest
-#                """
-#            }
-#        }
+        stage('Docker Build') {
+            steps {
+                sh """
+                    #docker build -t ${APP_NAME}:${VERSION} .
+                    #docker tag ${APP_NAME}:${VERSION} ${APP_NAME}:latest
+                """
+            }
+        }
         
         stage('Deploy to App Server') {
             steps {
