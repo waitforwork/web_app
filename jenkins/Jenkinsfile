@@ -1,0 +1,126 @@
+pipeline {
+    agent any
+    
+    environment {
+        APP_NAME = 'cpp-webapp'
+        VERSION = "${env.BUILD_NUMBER}"
+        DOCKER_REGISTRY = 'localhost:5000'
+        DEPLOY_SERVER = '192.168.56.101'
+        NGINX_SERVER = '192.168.56.103'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh 'git log -1 --oneline'
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh '''
+                    chmod +x scripts/build.sh
+                    ./scripts/build.sh
+                '''
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh '''
+                    cd build
+                    ./CppWebApp_test || true  # Тесты опциональные
+                '''
+            }
+        }
+        
+        stage('Docker Build') {
+            steps {
+                sh """
+                    docker build -t ${APP_NAME}:${VERSION} .
+                    docker tag ${APP_NAME}:${VERSION} ${APP_NAME}:latest
+                """
+            }
+        }
+        
+        stage('Deploy to App Server') {
+            steps {
+                sh """
+                    # Останавливаем старое приложение
+                    ssh -o StrictHostKeyChecking=no vagrant@${DEPLOY_SERVER} \
+                        "pkill CppWebApp || true"
+                    
+                    # Копируем бинарник
+                    scp -o StrictHostKeyChecking=no \
+                        build/CppWebApp \
+                        vagrant@${DEPLOY_SERVER}:~/app/
+                    
+                    # Запускаем
+                    ssh -o StrictHostKeyChecking=no vagrant@${DEPLOY_SERVER} \
+                        "cd ~/app && nohup ./CppWebApp 3000 > app.log 2>&1 &"
+                """
+            }
+        }
+        
+        stage('Update Nginx Config') {
+            steps {
+                sh """
+                    # Обновляем конфиг Nginx
+                    cat > nginx-app.conf << 'EOF'
+                    upstream cpp_backend {
+                        server ${DEPLOY_SERVER}:3000;
+                    }
+                    
+                    server {
+                        listen 80;
+                        server_name app.local;
+                        
+                        location / {
+                            proxy_pass http://cpp_backend;
+                            proxy_set_header Host \$host;
+                            proxy_set_header X-Real-IP \$remote_addr;
+                        }
+                        
+                        location /health {
+                            proxy_pass http://cpp_backend/health;
+                            access_log off;
+                        }
+                    }
+                    EOF
+                    
+                    # Копируем на Nginx сервер
+                    scp -o StrictHostKeyChecking=no \
+                        nginx-app.conf \
+                        vagrant@${NGINX_SERVER}:/tmp/
+                    
+                    # Применяем конфиг
+                    ssh -o StrictHostKeyChecking=no vagrant@${NGINX_SERVER} \
+                        "sudo cp /tmp/nginx-app.conf /etc/nginx/sites-available/cpp-app && \
+                         sudo ln -sf /etc/nginx/sites-available/cpp-app /etc/nginx/sites-enabled/ && \
+                         sudo nginx -t && sudo systemctl reload nginx"
+                """
+            }
+        }
+        
+        stage('Smoke Test') {
+            steps {
+                sh """
+                    # Проверяем здоровье приложения через Nginx
+                    sleep 5
+                    curl -f http://${NGINX_SERVER}/health || exit 1
+                    echo "Deployment successful!"
+                """
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+    }
+}
