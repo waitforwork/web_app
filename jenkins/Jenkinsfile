@@ -54,7 +54,7 @@ pipeline {
                     # Копируем бинарник
                     scp -o StrictHostKeyChecking=no \
                         build/CppWebApp \
-                        vagrant@${DEPLOY_SERVER}:~/app/
+                        vagrant@${DEPLOY_SERVER}:~/123/app/
                     
                     # Запускаем
                     ssh -o StrictHostKeyChecking=no vagrant@${DEPLOY_SERVER} \
